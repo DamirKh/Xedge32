@@ -1,0 +1,4 @@
+ARG IDF_IMAGE=espressif/idf:v6.1
+FROM ${IDF_IMAGE}
+
+ENV IDF_CCACHE_ENABLE=1
