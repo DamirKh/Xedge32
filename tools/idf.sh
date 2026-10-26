@@ -38,7 +38,18 @@ docker_args=(
     -w /project
 )
 
-for name in HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy IDF_TARGET; do
+declare -A serial_groups=()
+for dev in /dev/ttyUSB* /dev/ttyACM*; do
+    if [[ -e "$dev" ]]; then
+        docker_args+=(--device "$dev")
+        serial_groups["$(stat -c %g "$dev")"]=1
+    fi
+done
+for gid in "${!serial_groups[@]}"; do
+    docker_args+=(--group-add "$gid")
+done
+
+for name in HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy IDF_TARGET XEDGE_WIFI_PASS; do
     if [[ -n ${!name:-} ]]; then
         docker_args+=(-e "$name=${!name}")
     fi
