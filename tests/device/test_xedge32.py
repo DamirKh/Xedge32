@@ -19,7 +19,7 @@ class Shell:
         self.ser = None
         self.sync_output = ""
 
-    def open(self, timeout=10.0):
+    def open(self, timeout=20.0):
         deadline = time.time() + timeout
         while True:
             try:
@@ -34,8 +34,9 @@ class Shell:
                 time.sleep(0.5)
         self.ser.write(b"\n")
         self.ser.flush()
-        boot = self.read_prompt(timeout)
-        if not self.sync(8.0):
+        time.sleep(0.5)
+        boot = self.drain(0.5)
+        if not self.sync(max(8.0, timeout)):
             raise RuntimeError("LuaShell32 did not respond")
         return boot + self.sync_output
 

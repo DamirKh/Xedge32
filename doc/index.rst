@@ -131,6 +131,7 @@ Xedge ESP32
    source/PWM
    source/RMT
    source/UART
+   source/ESPNow
    source/misc
    source/BME280
    source/RTU

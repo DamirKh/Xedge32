@@ -74,6 +74,9 @@ LThreadMgr Documentation:
 #include <driver/rmt_rx.h>
 #include <driver/rmt_encoder.h>
 #include <esp_wifi.h>
+#if defined(CONFIG_XEDGE_WIFI_ENABLED) && defined(CONFIG_SOC_WIFI_SUPPORTED)
+#include <esp_now.h>
+#endif
 #include <esp_mac.h>
 #include <esp_log.h>
 #include <esp_vfs_fat.h>
@@ -3704,6 +3707,336 @@ static void hardwareRecover(ThreadJob* jb, int msgh, LThreadMgr* mgr)
 
 /*********************************************************************
  *********************************************************************
+                            ESP-NOW
+ *********************************************************************
+ *********************************************************************/
+
+#if defined(CONFIG_XEDGE_WIFI_ENABLED) && defined(CONFIG_SOC_WIFI_SUPPORTED)
+
+#define BAESPNOW "ESPNow"
+#define ESPNOW_QUEUE_SIZE 8
+
+typedef struct
+{
+   int selfRef;
+   uint32_t generation;
+   uint8_t src[ESP_NOW_ETH_ALEN];
+   uint8_t dest[ESP_NOW_ETH_ALEN];
+   int8_t rssi;
+   uint8_t channel;
+   uint16_t len;
+   uint8_t data[ESP_NOW_MAX_DATA_LEN];
+} EspNowMsg;
+
+typedef struct LEspNow
+{
+   int selfRef;
+   uint32_t generation;
+   BaBool initialized;
+   BaBool registered;
+   BaBool started;
+} LEspNow;
+
+typedef struct
+{
+   ThreadJob super;
+   EspNowMsg* msg;
+} EspNowThreadJob;
+
+static LEspNow* activeEspNow;
+static uint32_t espNowGeneration;
+static SemaphoreHandle_t espNowCredits;
+static atomic_uint espNowDrops;
+static portMUX_TYPE espNowMux = portMUX_INITIALIZER_UNLOCKED;
+
+static esp_err_t EspNow_close(lua_State* L, LEspNow* o);
+static void espNowEventCB(EventBrokerCallbackArg arg);
+
+static void espNowReleaseCredit(void)
+{
+   if(espNowCredits) xSemaphoreGive(espNowCredits);
+}
+
+static void espNowResetCredits(void)
+{
+   if(!espNowCredits) return;
+   while(xSemaphoreTake(espNowCredits,0) == pdTRUE) {}
+   for(int i=0; i<ESPNOW_QUEUE_SIZE; ++i) xSemaphoreGive(espNowCredits);
+}
+
+static void espNowRecvCB(const esp_now_recv_info_t* info,
+                         const uint8_t* data, int len)
+{
+   int selfRef;
+   uint32_t generation;
+   LEspNow* o;
+
+   if(!info || !info->src_addr || !data || len <= 0 ||
+      len > ESP_NOW_MAX_DATA_LEN)
+   {
+      atomic_fetch_add(&espNowDrops,1);
+      return;
+   }
+
+   portENTER_CRITICAL(&espNowMux);
+   o=activeEspNow;
+   if(o && o->started)
+   {
+      selfRef=o->selfRef;
+      generation=o->generation;
+   }
+   else
+   {
+      o=NULL;
+   }
+   portEXIT_CRITICAL(&espNowMux);
+
+   if(!o || !eventBrokerQueue || !espNowCredits ||
+      xSemaphoreTake(espNowCredits,0) != pdTRUE)
+   {
+      atomic_fetch_add(&espNowDrops,1);
+      return;
+   }
+
+   EspNowMsg* m=(EspNowMsg*)baMalloc(sizeof(EspNowMsg));
+   if(!m)
+   {
+      espNowReleaseCredit();
+      atomic_fetch_add(&espNowDrops,1);
+      return;
+   }
+
+   m->selfRef=selfRef;
+   m->generation=generation;
+   memcpy(m->src,info->src_addr,ESP_NOW_ETH_ALEN);
+   if(info->des_addr)
+      memcpy(m->dest,info->des_addr,ESP_NOW_ETH_ALEN);
+   else
+      memset(m->dest,0,ESP_NOW_ETH_ALEN);
+   m->rssi=info->rx_ctrl ? info->rx_ctrl->rssi : 0;
+   m->channel=info->rx_ctrl ? info->rx_ctrl->channel : 0;
+   m->len=(uint16_t)len;
+   memcpy(m->data,data,(size_t)len);
+
+   EventBrokerQueueNode n = {
+      .callback=espNowEventCB,
+      .arg.ptr=m
+   };
+   if(xQueueSend(eventBrokerQueue,&n,0) != pdTRUE)
+   {
+      baFree(m);
+      espNowReleaseCredit();
+      atomic_fetch_add(&espNowDrops,1);
+   }
+}
+
+static void executeLuaEspNowCB(ThreadJob* jb, int msgh, LThreadMgr* mgr)
+{
+   EspNowThreadJob* job=(EspNowThreadJob*)jb;
+   EspNowMsg* m=job->msg;
+   LEspNow* o=(LEspNow*)eventOwner(jb->Lt,m->selfRef);
+
+   if(o && o->started && o->generation == m->generation)
+   {
+      lua_State* L=jb->Lt;
+      lua_getiuservalue(L,msgh+1,1);
+      lua_pushlstring(L,(const char*)m->data,m->len);
+      lua_pushlstring(L,(const char*)m->src,ESP_NOW_ETH_ALEN);
+      lua_createtable(L,0,4);
+      lua_pushlstring(L,(const char*)m->dest,ESP_NOW_ETH_ALEN);
+      lua_setfield(L,-2,"dest");
+      lua_pushinteger(L,m->rssi);
+      lua_setfield(L,-2,"rssi");
+      lua_pushinteger(L,m->channel);
+      lua_setfield(L,-2,"channel");
+      lua_pushinteger(L,m->len);
+      lua_setfield(L,-2,"len");
+      if(LUA_OK != lua_pcall(L,3,0,msgh))
+         EspNow_close(L,o);
+      lua_settop(L,msgh+1);
+   }
+
+   baFree(m);
+   espNowReleaseCredit();
+}
+
+static void espNowEventCB(EventBrokerCallbackArg arg)
+{
+   EspNowMsg* m=(EspNowMsg*)arg.ptr;
+   EventBrokerCallbackArg ownerArg = {.ref=m->selfRef};
+   LEspNow* o=(LEspNow*)eventBegin(ownerArg);
+
+   if(o && o->started && o->generation == m->generation)
+   {
+      EspNowThreadJob* job=(EspNowThreadJob*)ThreadJob_lcreate(
+         sizeof(EspNowThreadJob),executeLuaEspNowCB);
+      if(job)
+      {
+         job->msg=m;
+         m=NULL;
+         LThreadMgr_run(&ltMgr,(ThreadJob*)job);
+      }
+   }
+   eventEnd();
+
+   if(m)
+   {
+      baFree(m);
+      espNowReleaseCredit();
+      atomic_fetch_add(&espNowDrops,1);
+   }
+}
+
+static esp_err_t EspNow_close(lua_State* L, LEspNow* o)
+{
+   esp_err_t err=ESP_OK;
+
+   portENTER_CRITICAL(&espNowMux);
+   o->started=FALSE;
+   o->generation++;
+   if(activeEspNow == o) activeEspNow=NULL;
+   portEXIT_CRITICAL(&espNowMux);
+
+   if(o->registered)
+   {
+      err=esp_now_unregister_recv_cb();
+      if(err == ESP_OK || err == ESP_ERR_ESPNOW_NOT_INIT)
+      {
+         o->registered=FALSE;
+         err=ESP_OK;
+      }
+      else
+      {
+         goto done;
+      }
+   }
+   if(o->initialized)
+   {
+      err=esp_now_deinit();
+      if(err == ESP_OK || err == ESP_ERR_ESPNOW_NOT_INIT)
+      {
+         o->initialized=FALSE;
+         err=ESP_OK;
+      }
+   }
+done:
+   return hardwareCleanup(L,o,err);
+}
+
+static LEspNow* LESPNOW_getUD(lua_State* L)
+{
+   return (LEspNow*)luaL_checkudata(L,1,BAESPNOW);
+}
+
+static LEspNow* LESPNOW_checkUD(lua_State* L)
+{
+   LEspNow* o=LESPNOW_getUD(L);
+   if(!o->started) luaL_error(L,"CLOSED");
+   return o;
+}
+
+static int LESPNOW_close(lua_State* L)
+{
+   return hardwareStatus(L,EspNow_close(L,LESPNOW_getUD(L)));
+}
+
+static int LESPNOW_gc(lua_State* L)
+{
+   EspNow_close(L,LESPNOW_getUD(L));
+   return 0;
+}
+
+static int LESPNOW_info(lua_State* L)
+{
+   LESPNOW_checkUD(L);
+   uint8_t primary=0;
+   wifi_second_chan_t second;
+   uint32_t version=0;
+   esp_err_t err=esp_wifi_get_channel(&primary,&second);
+   if(err != ESP_OK) return pushEspRetVal(L,err,NULL,FALSE);
+   if(esp_now_get_version(&version) != ESP_OK) version=0;
+   lua_createtable(L,0,3);
+   lua_pushinteger(L,primary);
+   lua_setfield(L,-2,"channel");
+   lua_pushinteger(L,version);
+   lua_setfield(L,-2,"version");
+   lua_pushinteger(L,atomic_load(&espNowDrops));
+   lua_setfield(L,-2,"drops");
+   return 1;
+}
+
+static const struct luaL_Reg espnowObjLib[] = {
+   {"close", LESPNOW_close},
+   {"info", LESPNOW_info},
+   {"__gc", LESPNOW_gc},
+   {NULL, NULL}
+};
+
+static int lespnow(lua_State* L)
+{
+   wifi_mode_t mode;
+   esp_err_t err;
+
+   lInitConfigTable(L,1);
+   lua_getfield(L,1,"callback");
+   if(!lua_isfunction(L,-1)) return throwInvArg(L,"callback");
+   int cbIx=lua_gettop(L);
+
+   err=esp_wifi_get_mode(&mode);
+   if(err != ESP_OK) return pushEspRetVal(L,err,NULL,FALSE);
+   if(mode != WIFI_MODE_STA && mode != WIFI_MODE_AP &&
+      mode != WIFI_MODE_APSTA)
+      return pushEspRetVal(L,ESP_ERR_INVALID_STATE,"wifi",FALSE);
+
+   portENTER_CRITICAL(&espNowMux);
+   if(activeEspNow)
+   {
+      portEXIT_CRITICAL(&espNowMux);
+      return pushEspRetVal(L,ESP_ERR_INVALID_STATE,
+                           "ESP-NOW already open",FALSE);
+   }
+   portEXIT_CRITICAL(&espNowMux);
+
+   LEspNow* o=(LEspNow*)lNewUdataUV(L,sizeof(LEspNow),BAESPNOW,
+                                    espnowObjLib,1);
+   o->generation=++espNowGeneration;
+   atomic_store(&espNowDrops,0);
+
+   if(!espNowCredits)
+   {
+      espNowCredits=xSemaphoreCreateCounting(ESPNOW_QUEUE_SIZE,
+                                             ESPNOW_QUEUE_SIZE);
+      if(!espNowCredits)
+         return pushEspRetVal(L,ESP_ERR_NO_MEM,NULL,FALSE);
+   }
+   espNowResetCredits();
+
+   err=esp_now_init();
+   if(err != ESP_OK) return pushEspRetVal(L,err,NULL,FALSE);
+   o->initialized=TRUE;
+
+   err=esp_now_register_recv_cb(espNowRecvCB);
+   if(err != ESP_OK)
+   {
+      esp_now_deinit();
+      o->initialized=FALSE;
+      return pushEspRetVal(L,err,NULL,FALSE);
+   }
+   o->registered=TRUE;
+   o->selfRef=lReferenceCallback(L,lua_absindex(L,-1),cbIx);
+
+   portENTER_CRITICAL(&espNowMux);
+   o->started=TRUE;
+   activeEspNow=o;
+   portEXIT_CRITICAL(&espNowMux);
+   return 1;
+}
+
+#endif /* CONFIG_XEDGE_WIFI_ENABLED && CONFIG_SOC_WIFI_SUPPORTED */
+
+
+/*********************************************************************
+ *********************************************************************
                              MISC
  *********************************************************************
  *********************************************************************/
@@ -4369,6 +4702,9 @@ static const luaL_Reg esp32Lib[] = {
    {"pcnt", lLPCNT},
    {"pwmchannel", lLedChannel},
    {"uart", luart},
+#if defined(CONFIG_XEDGE_WIFI_ENABLED) && defined(CONFIG_SOC_WIFI_SUPPORTED)
+   {"espnow", lespnow},
+#endif
    {"wscan", lwscan},
    {"netconnect", lnetconnect},
    {"apinfo", lapinfo},
