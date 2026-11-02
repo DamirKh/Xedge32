@@ -3735,6 +3735,8 @@ typedef struct LEspNow
    BaBool initialized;
    BaBool registered;
    BaBool started;
+   BaBool psSaved;
+   wifi_ps_type_t prevPs;
 } LEspNow;
 
 typedef struct
@@ -3920,6 +3922,11 @@ static esp_err_t EspNow_close(lua_State* L, LEspNow* o)
       }
    }
 done:
+   if(o->psSaved)
+   {
+      esp_wifi_set_ps(o->prevPs);
+      o->psSaved=FALSE;
+   }
    return hardwareCleanup(L,o,err);
 }
 
@@ -3955,13 +3962,19 @@ static int LESPNOW_info(lua_State* L)
    esp_err_t err=esp_wifi_get_channel(&primary,&second);
    if(err != ESP_OK) return pushEspRetVal(L,err,NULL,FALSE);
    if(esp_now_get_version(&version) != ESP_OK) version=0;
-   lua_createtable(L,0,3);
+   lua_createtable(L,0,4);
    lua_pushinteger(L,primary);
    lua_setfield(L,-2,"channel");
    lua_pushinteger(L,version);
    lua_setfield(L,-2,"version");
    lua_pushinteger(L,atomic_load(&espNowDrops));
    lua_setfield(L,-2,"drops");
+   wifi_ps_type_t ps=WIFI_PS_NONE;
+   if(esp_wifi_get_ps(&ps) == ESP_OK)
+   {
+      lua_pushinteger(L,ps);
+      lua_setfield(L,-2,"ps");
+   }
    return 1;
 }
 
@@ -4024,6 +4037,14 @@ static int lespnow(lua_State* L)
    }
    o->registered=TRUE;
    o->selfRef=lReferenceCallback(L,lua_absindex(L,-1),cbIx);
+
+   wifi_ps_type_t ps;
+   if(esp_wifi_get_ps(&ps) == ESP_OK && ps != WIFI_PS_NONE &&
+      esp_wifi_set_ps(WIFI_PS_NONE) == ESP_OK)
+   {
+      o->prevPs=ps;
+      o->psSaved=TRUE;
+   }
 
    portENTER_CRITICAL(&espNowMux);
    o->started=TRUE;

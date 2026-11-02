@@ -18,6 +18,11 @@ setting up a TCP/IP connection.
    connected access point. In access-point mode it is
    ``CONFIG_WIFI_AP_CHANNEL`` (default ``1``).
 
+   While a receiver is open, Xedge32 disables Wi-Fi power saving
+   (``WIFI_PS_NONE``) and restores the previous mode when the receiver is
+   closed. This improves receive reliability at the cost of higher power
+   consumption.
+
 ESP-NOW receive is available on ESP32 and ESP32-S3 targets with native Wi-Fi.
 It is not registered on ESP32-P4 ESP-Hosted builds.
 
@@ -63,9 +68,10 @@ Receiver Methods
    callbacks are discarded.
 
 ``rx:info()``
-   Returns a table with the current Wi-Fi ``channel``, ESP-NOW ``version``, and
+   Returns a table with the current Wi-Fi ``channel``, ESP-NOW ``version``,
    the number of received packets dropped because the queue was full or memory
-   was unavailable.
+   was unavailable, and the current Wi-Fi power-save mode ``ps``. A ``ps``
+   value of ``0`` means power saving is disabled while the receiver is open.
 
 Limits and Behavior
 -------------------
