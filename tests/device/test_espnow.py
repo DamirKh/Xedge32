@@ -111,6 +111,28 @@ def main():
             "channel=%s version=%s" % (channel, version),
         )
 
+        match, _ = lua_marker(
+            shell,
+            'print("TEST|espnow_broadcast|"'
+            '..(rx:broadcast("XNW1prov") and "OK" or "FAIL"))',
+        )
+        record(
+            "espnow_broadcast",
+            bool(match and match.group(2) == "OK"),
+            match.group(3) if match else "no marker",
+        )
+
+        match, _ = lua_marker(
+            shell,
+            'print("TEST|espnow_send|"'
+            '..(rx:send(string.char(2,0,0,0,0,1),"XNW1") and "OK" or "FAIL"))',
+        )
+        record(
+            "espnow_send",
+            bool(match and match.group(2) == "OK"),
+            match.group(3) if match else "no marker",
+        )
+
         if args.sender_port:
             try:
                 reset_sender(args.sender_port)

@@ -7,8 +7,8 @@ See :ref:`hardware-resource-lifetime` for callback ownership, close results,
 and cleanup behavior.
 
 ESP-NOW is a connectionless Wi-Fi protocol for short messages between nearby
-ESP32 devices. Xedge32 exposes a receive-only Lua API. Use it when another
-device sends sensor readings, commands, or small binary records without
+ESP32 devices. Xedge32 exposes receive and minimal send helpers. Use it when
+another device sends sensor readings, commands, or small binary records without
 setting up a TCP/IP connection.
 
 .. important::
@@ -73,11 +73,26 @@ Receiver Methods
    was unavailable, and the current Wi-Fi power-save mode ``ps``. A ``ps``
    value of ``0`` means power saving is disabled while the receiver is open.
 
+``rx:broadcast(data)``
+   Sends ``data`` to the broadcast address ``ff:ff:ff:ff:ff:ff``. The payload
+   must contain 1 to 250 bytes. Returns ``true`` when the packet was queued,
+   or ``nil`` and an error string. Broadcast has no link-layer
+   acknowledgement; use an application-level reply or confirmation packet
+   when delivery must be verified.
+
+``rx:send(mac, data)``
+   Sends ``data`` to the six-byte MAC address ``mac``. The payload must contain
+   1 to 250 bytes. The peer is registered automatically. Returns ``true`` when
+   the packet was queued, or ``nil`` and an error string. For unicast, the
+   ESP-NOW send callback reports link-layer delivery, but the Lua helper only
+   reports successful queueing.
+
 Limits and Behavior
 -------------------
 
 - Maximum payload is 250 bytes (ESP-NOW v1). Longer packets are dropped.
-- No send, peer management, or encryption API is exposed in this version.
+- No explicit peer management or encryption API is exposed. The receive and
+  send helpers register the broadcast peer and unicast peers automatically.
 - Up to eight received packets may be queued for Lua delivery. When the queue
   is full, the newest packet is dropped and counted by ``rx:info().drops``.
 - Keep a Lua reference to the receiver while it is in use. Queued callbacks do

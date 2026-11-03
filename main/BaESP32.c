@@ -3978,9 +3978,61 @@ static int LESPNOW_info(lua_State* L)
    return 1;
 }
 
+static int espNowPreparePeer(const uint8_t* mac)
+{
+   wifi_mode_t mode;
+   esp_err_t err=esp_wifi_get_mode(&mode);
+   if(err != ESP_OK) return err;
+   esp_now_peer_info_t peer;
+   uint8_t primary=0;
+   wifi_second_chan_t second=WIFI_SECOND_CHAN_NONE;
+   (void)esp_wifi_get_channel(&primary,&second);
+   memset(&peer,0,sizeof(peer));
+   memcpy(peer.peer_addr,mac,ESP_NOW_ETH_ALEN);
+   peer.channel=primary;
+   peer.ifidx=(mode == WIFI_MODE_AP) ? WIFI_IF_AP : WIFI_IF_STA;
+   peer.encrypt=false;
+   err=esp_now_add_peer(&peer);
+   if(err == ESP_ERR_ESPNOW_EXIST)
+      err=esp_now_mod_peer(&peer);
+   return err;
+}
+
+static int LESPNOW_broadcast(lua_State* L)
+{
+   LESPNOW_checkUD(L);
+   size_t len;
+   const char* data=luaL_checklstring(L,2,&len);
+   if(len == 0 || len > 250)
+      return throwInvArg(L,"data length");
+   static const uint8_t bcast[ESP_NOW_ETH_ALEN] =
+      {0xff,0xff,0xff,0xff,0xff,0xff};
+   esp_err_t err=espNowPreparePeer(bcast);
+   if(err != ESP_OK) return hardwareStatus(L,err);
+   return hardwareStatus(L,esp_now_send(bcast,(const uint8_t*)data,len));
+}
+
+static int LESPNOW_send(lua_State* L)
+{
+   LESPNOW_checkUD(L);
+   size_t macLen;
+   const char* mac=luaL_checklstring(L,2,&macLen);
+   if(macLen != ESP_NOW_ETH_ALEN) return throwInvArg(L,"MAC");
+   size_t len;
+   const char* data=luaL_checklstring(L,3,&len);
+   if(len == 0 || len > 250)
+      return throwInvArg(L,"data length");
+   esp_err_t err=espNowPreparePeer((const uint8_t*)mac);
+   if(err != ESP_OK) return hardwareStatus(L,err);
+   return hardwareStatus(L,esp_now_send((const uint8_t*)mac,
+                                       (const uint8_t*)data,len));
+}
+
 static const struct luaL_Reg espnowObjLib[] = {
    {"close", LESPNOW_close},
    {"info", LESPNOW_info},
+   {"broadcast", LESPNOW_broadcast},
+   {"send", LESPNOW_send},
    {"__gc", LESPNOW_gc},
    {NULL, NULL}
 };
@@ -4037,6 +4089,24 @@ static int lespnow(lua_State* L)
    }
    o->registered=TRUE;
    o->selfRef=lReferenceCallback(L,lua_absindex(L,-1),cbIx);
+
+   esp_now_peer_info_t peer;
+   uint8_t primary=0;
+   wifi_second_chan_t second=WIFI_SECOND_CHAN_NONE;
+   (void)esp_wifi_get_channel(&primary,&second);
+   memset(&peer,0,sizeof(peer));
+   memset(peer.peer_addr,0xff,ESP_NOW_ETH_ALEN);
+   peer.channel=primary;
+   peer.ifidx=(mode == WIFI_MODE_AP) ? WIFI_IF_AP : WIFI_IF_STA;
+   peer.encrypt=false;
+   err=esp_now_add_peer(&peer);
+   if(err != ESP_OK && err != ESP_ERR_ESPNOW_EXIST)
+   {
+      esp_now_deinit();
+      o->initialized=FALSE;
+      o->registered=FALSE;
+      return pushEspRetVal(L,err,NULL,FALSE);
+   }
 
    wifi_ps_type_t ps;
    if(esp_wifi_get_ps(&ps) == ESP_OK && ps != WIFI_PS_NONE &&
