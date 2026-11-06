@@ -238,6 +238,30 @@ Two runtime variants are provided for ESP32-S3 boards:
    the runtime console. If you use ``xedge-s0.bin``, you can usually keep using
    the same USB-to-UART connection.
 
+16 MB Flash Profile (ESP32-S3-N16R8)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The source tree includes a 16 MB flash profile for ESP32-S3 modules such as
+the ESP32-S3-WROOM-1-N16R8 (16 MB flash, 8 MB octal PSRAM):
+
+.. code-block:: sh
+
+   ./tools/build.sh esp32s3-16mb
+
+This profile uses ``sdkconfig.defaults.esp32s3-16mb`` and
+``ESP32s3-16MB-partitions.csv``. It keeps the normal 8 MB flash profile
+unchanged. The larger layout moves the ``xcfg`` partition and expands the FAT
+``storage`` partition, so migrate with a full flash rather than ``app-flash``:
+
+.. code-block:: sh
+
+   ./tools/idf.sh idf.py -B build/esp32s3-16mb \
+     -D SDKCONFIG=build/esp32s3-16mb/sdkconfig \
+     -p PORT flash
+
+Back up the application and configuration data before changing the partition
+layout. A full flash replaces the old ``xcfg`` contents.
+
 .. _esp32-p4-firmware:
 
 ESP32-P4 Firmware

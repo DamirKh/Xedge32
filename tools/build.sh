@@ -3,18 +3,36 @@ set -euo pipefail
 
 target=${1:-esp32}
 case "$target" in
-    esp32|esp32s3|esp32p4) ;;
+    esp32|esp32p4)
+        idf_target="$target"
+        profile=""
+        build_dir="build/$target"
+        ;;
+    esp32s3)
+        idf_target="esp32s3"
+        profile=""
+        build_dir="build/esp32s3"
+        ;;
+    esp32s3-16mb)
+        idf_target="esp32s3"
+        profile="16mb"
+        build_dir="build/esp32s3-16mb"
+        ;;
     *)
-        echo "usage: $0 [esp32|esp32s3|esp32p4]" >&2
+        echo "usage: $0 [esp32|esp32s3|esp32s3-16mb|esp32p4]" >&2
         exit 1
         ;;
 esac
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 idf="$repo_root/tools/idf.sh"
-build_dir="build/$target"
 config_file="$build_dir/sdkconfig"
-export IDF_TARGET="$target"
+export IDF_TARGET="$idf_target"
+if [[ -n "$profile" ]]; then
+    export XEDGE_S3_PROFILE="$profile"
+else
+    unset XEDGE_S3_PROFILE
+fi
 
 cd "$repo_root"
 mkdir -p "$build_dir"

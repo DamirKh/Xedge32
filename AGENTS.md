@@ -57,6 +57,7 @@ chip revision, console connection, and peripheral wiring before flashing.
 | --- | --- | --- |
 | `esp32` | [sdkconfig.defaults.esp32](sdkconfig.defaults.esp32) | 4 MB flash, PSRAM, UART console; Ethernet disabled |
 | `esp32s3` | [sdkconfig.defaults.esp32s3](sdkconfig.defaults.esp32s3) | 8 MB flash, octal PSRAM, native USB Serial/JTAG console; SPI W5500 support |
+| `esp32s3-16mb` | [sdkconfig.defaults.esp32s3](sdkconfig.defaults.esp32s3) + [sdkconfig.defaults.esp32s3-16mb](sdkconfig.defaults.esp32s3-16mb) | 16 MB flash N16R8 profile, 8 MB octal PSRAM, larger `storage` partition; full flash required after the partition change |
 | `esp32p4` | [sdkconfig.defaults.esp32p4](sdkconfig.defaults.esp32p4) | 16 MB flash, PSRAM, pre-v3 chip profile, native USB Serial/JTAG console; Function EV Board Ethernet/ESP-Hosted and OV5647 camera profile |
 
 The common defaults are in [sdkconfig.defaults](sdkconfig.defaults).
@@ -65,6 +66,12 @@ The root [CMakeLists.txt](CMakeLists.txt) also selects
 `IDF_TARGET` is set. Keep that environment variable set as shown below.
 Defaults seed new configurations; changing a defaults file does not replace
 values already saved in an existing `sdkconfig`.
+
+The `esp32s3-16mb` profile keeps `IDF_TARGET=esp32s3` but builds in
+`build/esp32s3-16mb` and uses
+[ESP32s3-16MB-partitions.csv](ESP32s3-16MB-partitions.csv). It moves the `xcfg`
+partition, so a first installation or migration requires a full flash, not
+`app-flash`.
 
 P4 has no integrated Wi-Fi radio. Its ESP-Hosted profile needs a compatible
 ESP32-C6 companion and firmware; Ethernet does not establish that Wi-Fi works.

@@ -1,0 +1,6 @@
+# ESP32-S3-N16R8 profile: 16 MB flash, 8 MB octal PSRAM.
+# The common ESP32-S3 defaults set 8 MB flash and the 8 MB partition table;
+# this overlay replaces both for modules with 16 MB flash.
+# CONFIG_ESPTOOLPY_FLASHSIZE_8MB is not set
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="ESP32s3-16MB-partitions.csv"

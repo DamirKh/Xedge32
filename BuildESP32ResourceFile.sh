@@ -17,6 +17,10 @@ export BIN2C=main/BAS-Resources/tools/linux/bin2c
 #Resource build directory
 RB=main/BAS-Resources/build
 pushd $RB || exit 1
+# Xedge.sh removes xedge.zip (lowercase), but this project uses Xedge.zip.
+# Remove the previous archive explicitly so obsolete plugin files cannot
+# survive a resource rebuild.
+rm -f Xedge.zip
 chmod +x Xedge.sh
 echo "Running $PWD/Xedge.sh"
 export NO_BIN2C=1

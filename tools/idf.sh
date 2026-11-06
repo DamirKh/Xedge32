@@ -49,7 +49,7 @@ for gid in "${!serial_groups[@]}"; do
     docker_args+=(--group-add "$gid")
 done
 
-for name in HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy IDF_TARGET XEDGE_WIFI_PASS; do
+for name in HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy IDF_TARGET XEDGE_S3_PROFILE XEDGE_WIFI_PASS; do
     if [[ -n ${!name:-} ]]; then
         docker_args+=(-e "$name=${!name}")
     fi
