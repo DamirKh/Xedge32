@@ -1,13 +1,15 @@
 # ESP-NOW Agent Guide
 
 This guide is for agents working on Xedge32 ESP-NOW integration. It covers the
-Lua API, a typical receive path, and the provisioning flow that was tested with
-a classic ESP32 transmitter.
+Lua API, a typical receive path, the provisioning flow that was tested with a
+classic ESP32 transmitter, and the production sensor node firmware.
 
 Authoritative sources:
 
 - `main/BaESP32.c`: ESP-NOW section and `esp32Lib` registration.
 - `doc/source/ESPNow.rst`: user-facing API reference.
+- `doc/AI/ESPNow-Packet-Format.md`: `XNW1` v2 sensor node packet layout.
+- `examples/espnow_sensor_node/`: classic ESP32 sensor node firmware.
 - `tests/device/test_espnow.py`: API and radio smoke tests.
 - `tests/espnow_provision_esp32/`: classic ESP32 provisioning transmitter.
 - `tests/espnow_provision_test_esp32.py`: end-to-end provisioning test.
@@ -27,6 +29,46 @@ interface, update `doc/source/ESPNow.rst` and the tests in the same change.
   break both receive and send without any Lua error.
 - While a receiver is open, Xedge32 disables Wi-Fi power saving
   (`WIFI_PS_NONE`) and restores the previous mode on close.
+
+## Sensor Node Firmware
+
+`examples/espnow_sensor_node` is the production node, separate from the
+provisioning test in `tests/espnow_provision_esp32`.
+
+- Classic ESP32, ESP-IDF/C, no access-point association.
+- DS18B20 on GPIO18 via the RMT-backed `espressif/onewire_bus` and
+  `espressif/ds18b20` components.
+- Setup jumper on GPIO4, status LED on GPIO2, battery divider on GPIO35.
+- Reads up to five sensors and sends the 96-byte `XNW1` v2 packet defined in
+  `doc/AI/ESPNow-Packet-Format.md`.
+- Send-only: it does not process inbound ESP-NOW packets outside provisioning.
+
+Boot and mode rules:
+
+1. Jumper installed or no valid provisioning record: setup.
+2. Setup always re-provisions and rescans the bus. The old sensor table is
+   replaced.
+3. Jumper still installed after setup: fast mode. Read and send continuously
+   with no extra delay; the DS18B20 conversion dominates the cycle at about
+   800 ms.
+4. Jumper removed: normal mode, one measurement and packet every 300 s.
+5. No sensors found: save an empty table, signal an error on the LED, and keep
+   sending packets with zero slots and the `FAULT` flag.
+6. No controller found: keep scanning channels 1..13 forever; do not fall back
+   to the previous configuration.
+
+Build without flashing:
+
+```sh
+./tools/idf.sh bash -c 'cd /project/examples/espnow_sensor_node && \
+  IDF_TARGET=esp32 idf.py -B /project/build/espnow_sensor_node/build \
+  -D SDKCONFIG=/project/build/espnow_sensor_node/build/sdkconfig build'
+```
+
+The sensor node has not been validated on hardware from this tree yet. When
+changing it, run the build above and the packet decoder in
+`examples/espnow_sensor_node/tools/decode.py`. Update the packet format document
+in the same change if the layout changes.
 
 ## Lua API
 
@@ -200,13 +242,19 @@ POK, transmitter -> controller:
   4       6     transmitter MAC
   10      4     token
 
-XNW1 test reading, transmitter -> controller:
+XNW1 test reading, transmitter -> controller (test-only v1):
   offset  size  field
   0       4     "XNW1"
   4       4     sequence, little endian
   8       4     uptime in milliseconds, little endian
   12      ...   zero padding
 ```
+
+The 32-byte packet above is produced only by the provisioning test. The
+production sensor node sends the 96-byte `XNW1` v2 packet with a version byte,
+sensor slots, battery voltage and status flags. See
+`doc/AI/ESPNow-Packet-Format.md`. Distinguish the two formats by length: v2 is
+always 96 bytes and `data[4] == 2`.
 
 The token is a matching aid, not encryption or authentication. ESP-NOW payloads
 are unencrypted in the current API.
