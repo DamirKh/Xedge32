@@ -74,6 +74,16 @@ changing it, run the build above and the packet decoder in
 `examples/espnow_sensor_node/tools/decode.py`. Update the packet format document
 in the same change if the layout changes.
 
+Setup-mode coverage lives in `tests/espnow_sensor_node_setup_test.py`. It
+asserts the node log markers for setup entry, PROV retries, malformed PROV,
+bus scan, first packet, fast/normal transitions, and reboot persistence, and it
+can drive the controller's LuaShell for PROV/POK. **Status: not executed.** The
+harness was written while both boards were disconnected; only its syntax,
+`--list`, and missing-port path were checked. Run it after connecting the
+hardware. Manual cases cover LED patterns, channel recovery, and sensor edge
+cases (more than five sensors, non-DS18B20 devices, missing or replaced
+sensors).
+
 ## Lua API
 
 ### Create a receiver

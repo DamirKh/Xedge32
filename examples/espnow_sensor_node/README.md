@@ -103,6 +103,29 @@ The first build downloads `espressif/ds18b20` and `espressif/onewire_bus` into
 The app is about 740 KB and uses a 2 MB factory partition, leaving room for
 future growth. There is no OTA support; the node has no network connection.
 
+## Testing
+
+`tests/espnow_sensor_node_setup_test.py` drives the node over UART and, when
+available, the Xedge32 controller over LuaShell. It covers setup entry,
+provisioning retries, malformed `PROV`, bus scan, the first packet,
+fast/normal transitions, and reboot persistence. LED patterns, channel
+recovery, and sensor edge cases are manual cases. See the harness docstring for
+the full list and hardware requirements.
+
+**STATUS: not executed.** The harness was written while both boards were
+disconnected. Only the Python syntax, `--list`, and the missing-port path have
+been checked. Run it after connecting the hardware:
+
+```sh
+./tools/idf.sh python tests/espnow_sensor_node_setup_test.py --list
+./tools/idf.sh python tests/espnow_sensor_node_setup_test.py --case all \
+  --sensors 0
+```
+
+For 1 or 5 sensors, pass `--sensors N` and connect the sensors first. Jumper
+cases prompt for the physical jumper unless `--yes` is used; the boot log still
+verifies the actual state.
+
 ## Flash
 
 The module used during development is a classic ESP32 on `/dev/ttyUSB0`:
