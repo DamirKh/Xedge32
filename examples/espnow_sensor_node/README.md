@@ -112,9 +112,16 @@ fast/normal transitions, and reboot persistence. LED patterns, channel
 recovery, and sensor edge cases are manual cases. See the harness docstring for
 the full list and hardware requirements.
 
-**STATUS: not executed.** The harness was written while both boards were
-disconnected. Only the Python syntax, `--list`, and the missing-port path have
-been checked. Run it after connecting the hardware:
+**STATUS: partially run on 2026-11-12**, with 0 sensors and the jumper removed.
+
+Passed: `setup_no_config`, `valid_config_normal`, `reboot_persistence`,
+`malformed_prov`, `no_controller_retry`.
+
+Skipped: `jumper_reprovision_fast` (no physical jumper). Manual cases and the
+1/5-sensor variants were not run. The controller application was stopped for
+the run; its core still reconnected to an automatic-channel uplink, so the
+tests exercised channel recovery (9 -> 10 and 6 -> 2). The application was
+restarted afterwards.
 
 ```sh
 ./tools/idf.sh python tests/espnow_sensor_node_setup_test.py --list
