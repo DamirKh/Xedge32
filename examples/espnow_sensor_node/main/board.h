@@ -18,3 +18,8 @@
 
 /* Normal measurement interval. */
 #define NODE_NORMAL_INTERVAL_MS    300000
+
+/* Channel recovery after a failed send. */
+#define NODE_CHANNEL_MIN           1
+#define NODE_CHANNEL_MAX           13
+#define NODE_CHANNEL_SETTLE_MS     20

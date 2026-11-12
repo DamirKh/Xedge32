@@ -56,6 +56,10 @@ Boot and mode rules:
    sending packets with zero slots and the `FAULT` flag.
 6. No controller found: keep scanning channels 1..13 forever; do not fall back
    to the previous configuration.
+7. Send recovery: three attempts on the stored channel, then a scan of 1..13.
+   The channel that acknowledges is persisted in `prov/cfg`. The packet and its
+   `seq` are unchanged while scanning; the controller deduplicates by
+   `boot_id`/`seq`.
 
 Build without flashing:
 
@@ -345,8 +349,11 @@ Run the receive/stability test with a MicroPython sender when available:
 ## Failure Modes Learned From Hardware
 
 - **AP channel changes:** A phone hotspot changed channel 10 -> 12 -> 10 and
-  later 4 -> 5. Provisioning and data failed intermittently. Use a fixed 2.4 GHz
-  channel on a controlled AP for tests and production.
+  later 4 -> 5. Provisioning and data failed intermittently. The sensor node
+  now recovers automatically: after three failed sends it scans channels 1..13
+  and persists the channel that acknowledges. Other senders must implement the
+  same recovery or use a fixed 2.4 GHz channel on a controlled AP. The
+  controller stays on the AP channel and does not scan.
 - **Download mode:** A reset sequence that leaves DTR/GPIO0 low after reset puts
   the classic ESP32 into UART download mode. Normal reset must release DTR and
   pulse RTS, then leave both in the normal-boot state.

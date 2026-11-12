@@ -16,7 +16,10 @@ setting up a TCP/IP connection.
    The receiver uses the channel of the active Wi-Fi interface. The sender
    must transmit on the same channel. In station mode the channel follows the
    connected access point. In access-point mode it is
-   ``CONFIG_WIFI_AP_CHANNEL`` (default ``1``).
+   ``CONFIG_WIFI_AP_CHANNEL`` (default ``1``). The reference sensor node in
+   ``examples/espnow_sensor_node`` recovers from an access-point channel change
+   by scanning channels after a failed send and storing the channel that
+   acknowledges; the controller itself stays on its AP channel.
 
    While a receiver is open, Xedge32 disables Wi-Fi power saving
    (``WIFI_PS_NONE``) and restores the previous mode when the receiver is

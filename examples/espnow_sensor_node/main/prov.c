@@ -63,6 +63,15 @@ esp_err_t prov_save(const node_prov_cfg_t *cfg)
     return err;
 }
 
+esp_err_t prov_set_channel(node_prov_cfg_t *cfg, uint8_t channel)
+{
+    if (channel < 1 || channel > 13) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    cfg->channel = channel;
+    return prov_save(cfg);
+}
+
 static void prov_recv(const uint8_t *src, const uint8_t *data, int len)
 {
     if (len < 16 || memcmp(data, "PROV", 4) != 0) {

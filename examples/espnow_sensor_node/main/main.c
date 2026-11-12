@@ -64,6 +64,49 @@ static void mac_str(const uint8_t mac[6], char out[18])
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
+/*
+ * Sends on the stored channel first. If the controller does not acknowledge,
+ * scan the other 2.4 GHz channels and persist the channel that answers. This
+ * follows an access point that changed its channel without re-provisioning.
+ */
+static bool send_with_recovery(const void *data, size_t len)
+{
+    if (link_send(s_cfg.controller, data, len, 3, 150)) {
+        return true;
+    }
+
+    uint8_t old_channel = s_cfg.channel;
+
+    for (uint8_t channel = NODE_CHANNEL_MIN; channel <= NODE_CHANNEL_MAX; ++channel) {
+        if (channel == old_channel) {
+            continue;
+        }
+
+        if (link_set_channel(channel) != ESP_OK) {
+            continue;
+        }
+        vTaskDelay(pdMS_TO_TICKS(NODE_CHANNEL_SETTLE_MS));
+
+        if (link_send(s_cfg.controller, data, len, 1, 150)) {
+            esp_err_t err = prov_set_channel(&s_cfg, channel);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "cannot save channel %u: %s",
+                         channel, esp_err_to_name(err));
+            }
+            ESP_LOGI(TAG, "channel recovered %u -> %u", old_channel, channel);
+            return true;
+        }
+    }
+
+    esp_err_t err = link_set_channel(old_channel);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "cannot restore channel %u: %s",
+                 old_channel, esp_err_to_name(err));
+    }
+    ESP_LOGW(TAG, "no ACK on any channel, staying on %u", old_channel);
+    return false;
+}
+
 static void send_packet(bool setup_mode)
 {
     node_sensor_slot_t slots[NODE_MAX_SENSORS];
@@ -74,7 +117,7 @@ static void send_packet(bool setup_mode)
     payload_build(&payload, s_boot_id, ++s_seq, slots, count,
                   battery_mv, setup_mode, s_cold_boot);
 
-    bool ok = link_send(s_cfg.controller, &payload, sizeof(payload), 3, 150);
+    bool ok = send_with_recovery(&payload, sizeof(payload));
 
     ESP_LOGI(TAG, "tx seq=%lu slots=%u batt=%umV ch=%u flags=0x%02x ok=%d",
              (unsigned long)payload.seq, count, battery_mv, s_cfg.channel,

@@ -16,5 +16,8 @@ esp_err_t prov_load(node_prov_cfg_t *cfg);
 esp_err_t prov_save(const node_prov_cfg_t *cfg);
 bool prov_valid(const node_prov_cfg_t *cfg);
 
+/* Updates cfg->channel and persists the record. */
+esp_err_t prov_set_channel(node_prov_cfg_t *cfg, uint8_t channel);
+
 /* Blocks until a controller is found and the provisioning record is saved. */
 void prov_run_forever(node_prov_cfg_t *cfg);

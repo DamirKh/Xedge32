@@ -60,6 +60,23 @@ If the controller is not found during setup, the node keeps scanning channels
 If the scan finds no sensors, the node saves an empty table, signals an error
 with the LED, and keeps sending packets with zero slots and the `FAULT` flag.
 
+## Channel recovery
+
+The node normally sends on the channel stored in `prov/cfg`.
+
+1. It makes three attempts on that channel.
+2. If none is acknowledged, it scans channels 1..13 (except the current one),
+   waits 20 ms for the radio to settle, and sends once per channel.
+3. The first channel that returns a link-layer ACK is stored back into
+   `prov/cfg`, and the node continues on it.
+4. If no channel is acknowledged, the node restores the previous channel and
+   reports the failure; the next cycle tries again.
+
+The packet and its `seq` do not change while scanning, so the controller can
+deduplicate a packet that arrives twice. In fast mode a failed cycle takes about
+2.5 s instead of 0.8 s. The controller does not move: it stays on its AP
+channel, and only the node follows the channel change.
+
 ## LED
 
 | Pattern | Meaning |
